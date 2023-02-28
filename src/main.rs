@@ -3,11 +3,22 @@ use std::env;
 use std::io;
 use std::process;
 
+enum Token {}
+impl Token {
+    pub const DIGIT: &str = r"\d";
+    pub const ALPHANUMERIC: &str = r"\w";
+}
+
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
     match pattern {
-        "\\d" => {
+        Token::DIGIT => {
             return input_line.contains(|input_char| {
                 return char::is_digit(input_char, 10);
+            })
+        }
+        Token::ALPHANUMERIC => {
+            return input_line.contains(|input_char| {
+                return char::is_alphabetic(input_char);
             })
         }
         _ => return input_line.contains(pattern),
@@ -55,17 +66,17 @@ mod test {
     #[test]
     fn single_character() -> Result<(), Box<dyn Error>> {
         {
-            let mut cmd = spawn_cmd(vec!["-E".to_string(), "a".to_string()])?;
+            let mut cmd = spawn_cmd(vec!["-E", "a"])?;
 
-            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple").unwrap();
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
             let output = cmd.wait_with_output()?;
             assert_eq!(output.status.code().unwrap(), 0);
         }
 
         {
-            let mut cmd = spawn_cmd(vec!["-E".to_string(), "d".to_string()])?;
+            let mut cmd = spawn_cmd(vec!["-E", "d"])?;
 
-            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple").unwrap();
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
             let output = cmd.wait_with_output()?;
             assert_eq!(output.status.code().unwrap(), 1);
         }
@@ -75,15 +86,47 @@ mod test {
 
     #[test]
     fn match_digits() -> Result<(), Box<dyn Error>> {
-        let mut cmd = spawn_cmd(vec!["-E".to_string(), "\\d".to_string()])?;
+        {
+            let mut cmd = spawn_cmd(vec!["-E", r"\d"])?;
 
-        write!(cmd.stdin.as_mut().unwrap(), "{}", "apple123").unwrap();
-        let output = cmd.wait_with_output()?;
-        assert_eq!(output.status.code().unwrap(), 0);
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple123")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", r"\d"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 1);
+        }
+
         return Ok(());
     }
 
-    fn spawn_cmd(args: Vec<String>) -> Result<Child, Box<dyn Error>> {
+    #[test]
+    fn match_alphanumeric() -> Result<(), Box<dyn Error>> {
+        {
+            let mut cmd = spawn_cmd(vec!["-E", r"\w"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "alpha-num3ric")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", r"\w"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "$!?")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 1);
+        }
+
+        return Ok(());
+    }
+
+    fn spawn_cmd(args: Vec<&str>) -> Result<Child, Box<dyn Error>> {
         let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
         let cmd = Command::new(path)
             .args(args)
