@@ -33,37 +33,46 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use assert_cmd::Command;
-    use std::error::Error;
+    use std::{
+        error::Error,
+        io::Write,
+        path::PathBuf,
+        process::{Command, Stdio},
+    };
 
     #[test]
     fn validates_the_first_parameter() -> Result<(), Box<dyn Error>> {
-        let mut cmd = Command::cargo_bin("grep-starter-rust")?;
-        cmd.arg("a").write_stdin("apple").assert().failure().code(1);
+        let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
+        let cmd = Command::new(path).args(["a"]).status()?;
 
+        assert_eq!(cmd.code().unwrap(), 1);
         return Ok(());
     }
 
     #[test]
     fn single_character() -> Result<(), Box<dyn Error>> {
         {
-            let mut cmd = Command::cargo_bin("grep-starter-rust")?;
-            cmd.arg("-E")
-                .arg("a")
-                .write_stdin("apple")
-                .assert()
-                .success()
-                .code(0);
+            let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
+            let mut cmd = Command::new(path)
+                .args(["-E", "a"])
+                .stdin(Stdio::piped())
+                .spawn()?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple").unwrap();
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
         }
 
         {
-            let mut cmd = Command::cargo_bin("grep-starter-rust")?;
-            cmd.arg("-E")
-                .arg("d")
-                .write_stdin("apple")
-                .assert()
-                .failure()
-                .code(1);
+            let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
+            let mut cmd = Command::new(path)
+                .args(["-E", "d"])
+                .stdin(Stdio::piped())
+                .spawn()?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple").unwrap();
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 1);
         }
 
         return Ok(());
