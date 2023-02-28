@@ -4,10 +4,13 @@ use std::io;
 use std::process;
 
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
-    if pattern.chars().count() == 1 {
-        return input_line.contains(pattern);
-    } else {
-        panic!("Unhandled pattern: {}", pattern)
+    match pattern {
+        "\\d" => {
+            return input_line.contains(|input_char| {
+                return char::is_digit(input_char, 10);
+            })
+        }
+        _ => return input_line.contains(pattern),
     }
 }
 
@@ -37,7 +40,7 @@ mod test {
         error::Error,
         io::Write,
         path::PathBuf,
-        process::{Command, Stdio},
+        process::{Child, Command, Stdio},
     };
 
     #[test]
@@ -52,11 +55,7 @@ mod test {
     #[test]
     fn single_character() -> Result<(), Box<dyn Error>> {
         {
-            let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
-            let mut cmd = Command::new(path)
-                .args(["-E", "a"])
-                .stdin(Stdio::piped())
-                .spawn()?;
+            let mut cmd = spawn_cmd(vec!["-E".to_string(), "a".to_string()])?;
 
             write!(cmd.stdin.as_mut().unwrap(), "{}", "apple").unwrap();
             let output = cmd.wait_with_output()?;
@@ -64,11 +63,7 @@ mod test {
         }
 
         {
-            let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
-            let mut cmd = Command::new(path)
-                .args(["-E", "d"])
-                .stdin(Stdio::piped())
-                .spawn()?;
+            let mut cmd = spawn_cmd(vec!["-E".to_string(), "d".to_string()])?;
 
             write!(cmd.stdin.as_mut().unwrap(), "{}", "apple").unwrap();
             let output = cmd.wait_with_output()?;
@@ -76,5 +71,25 @@ mod test {
         }
 
         return Ok(());
+    }
+
+    #[test]
+    fn match_digits() -> Result<(), Box<dyn Error>> {
+        let mut cmd = spawn_cmd(vec!["-E".to_string(), "\\d".to_string()])?;
+
+        write!(cmd.stdin.as_mut().unwrap(), "{}", "apple123").unwrap();
+        let output = cmd.wait_with_output()?;
+        assert_eq!(output.status.code().unwrap(), 0);
+        return Ok(());
+    }
+
+    fn spawn_cmd(args: Vec<String>) -> Result<Child, Box<dyn Error>> {
+        let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
+        let cmd = Command::new(path)
+            .args(args)
+            .stdin(Stdio::piped())
+            .spawn()?;
+
+        return Ok(cmd);
     }
 }
