@@ -9,6 +9,13 @@ impl Token {
     pub const ALPHANUMERIC: &str = r"\w";
 }
 
+struct Pattern;
+impl Pattern {
+    fn is_positive_character_group(pattern: &str) -> bool {
+        return pattern.starts_with("[") && pattern.ends_with("]");
+    }
+}
+
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
     match pattern {
         Token::DIGIT => {
@@ -20,6 +27,24 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
             return input_line.contains(|input_char| {
                 return char::is_alphabetic(input_char);
             })
+        }
+        pattern if Pattern::is_positive_character_group(pattern) => {
+            let chars_to_match = pattern
+                .strip_prefix("[")
+                .expect("failed to strip the [ from the pattern")
+                .strip_suffix("]")
+                .expect("failed to strip the ] from the pattern")
+                .chars();
+
+            let result = chars_to_match.fold(false, |match_found, char_to_match| {
+                if input_line.contains(char_to_match) {
+                    return true;
+                }
+
+                return match_found;
+            });
+
+            return result;
         }
         _ => return input_line.contains(pattern),
     }
@@ -52,10 +77,23 @@ mod test {
         io::Write,
         path::PathBuf,
         process::{Child, Command, Stdio},
+        sync::Once,
     };
+
+    static BUILD_BINARY: Once = Once::new();
+    fn setup() {
+        BUILD_BINARY.call_once(|| {
+            Command::new("cargo")
+                .arg("build")
+                .spawn()
+                .expect("failed to build binary");
+        });
+    }
 
     #[test]
     fn validates_the_first_parameter() -> Result<(), Box<dyn Error>> {
+        setup();
+
         let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
         let cmd = Command::new(path).args(["a"]).status()?;
 
@@ -65,6 +103,8 @@ mod test {
 
     #[test]
     fn single_character() -> Result<(), Box<dyn Error>> {
+        setup();
+
         {
             let mut cmd = spawn_cmd(vec!["-E", "a"])?;
 
@@ -86,6 +126,8 @@ mod test {
 
     #[test]
     fn match_digits() -> Result<(), Box<dyn Error>> {
+        setup();
+
         {
             let mut cmd = spawn_cmd(vec!["-E", r"\d"])?;
 
@@ -107,6 +149,8 @@ mod test {
 
     #[test]
     fn match_alphanumeric() -> Result<(), Box<dyn Error>> {
+        setup();
+
         {
             let mut cmd = spawn_cmd(vec!["-E", r"\w"])?;
 
@@ -119,6 +163,45 @@ mod test {
             let mut cmd = spawn_cmd(vec!["-E", r"\w"])?;
 
             write!(cmd.stdin.as_mut().unwrap(), "{}", "$!?")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 1);
+        }
+
+        return Ok(());
+    }
+
+    #[test]
+    fn match_positive_character_groups() -> Result<(), Box<dyn Error>> {
+        setup();
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[abc]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[a]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[d]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 1);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
             let output = cmd.wait_with_output()?;
             assert_eq!(output.status.code().unwrap(), 1);
         }
