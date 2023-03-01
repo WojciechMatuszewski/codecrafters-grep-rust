@@ -5,8 +5,8 @@ use std::process;
 
 enum Token {}
 impl Token {
-    pub const DIGIT: &str = r"\d";
-    pub const ALPHANUMERIC: &str = r"\w";
+    pub const DIGIT: &'static str = r"\d";
+    pub const ALPHANUMERIC: &'static str = r"\w";
 }
 
 struct Pattern;
