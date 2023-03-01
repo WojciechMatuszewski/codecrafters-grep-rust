@@ -12,7 +12,20 @@ impl Token {
 struct Pattern;
 impl Pattern {
     fn is_positive_character_group(pattern: &str) -> bool {
-        return pattern.starts_with("[") && pattern.ends_with("]");
+        if pattern.len() < 3 {
+            return false;
+        }
+
+        let has_valid_prefix = pattern.get(..2).unwrap().contains(|prefix_char| {
+            return prefix_char == ']' || char::is_alphabetic(prefix_char);
+        });
+        let has_valid_suffix = pattern.ends_with("]");
+
+        return has_valid_prefix && has_valid_suffix;
+    }
+
+    fn is_negative_character_group(pattern: &str) -> bool {
+        return pattern.starts_with("[^") && pattern.ends_with("]");
     }
 }
 
@@ -46,6 +59,25 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
 
             return result;
         }
+        pattern if Pattern::is_negative_character_group(pattern) => {
+            let excluded_chars = pattern
+                .strip_prefix("[^")
+                .expect("failed to strip the [^ from the pattern")
+                .strip_suffix("]")
+                .expect("failed to strip the ] from the pattern")
+                .chars();
+
+            let has_excluded_chars =
+                excluded_chars.fold(false, |excluded_char_found, excluded_char| {
+                    if input_line.contains(excluded_char) {
+                        return true;
+                    }
+
+                    return excluded_char_found;
+                });
+
+            return !has_excluded_chars;
+        }
         _ => return input_line.contains(pattern),
     }
 }
@@ -58,7 +90,6 @@ fn main() {
     }
 
     let pattern = env::args().nth(2).unwrap();
-    println!("pattern: {:?}", pattern);
     let mut input_line = String::new();
 
     io::stdin().read_line(&mut input_line).unwrap();
@@ -77,23 +108,10 @@ mod test {
         io::Write,
         path::PathBuf,
         process::{Child, Command, Stdio},
-        sync::Once,
     };
-
-    static BUILD_BINARY: Once = Once::new();
-    fn setup() {
-        BUILD_BINARY.call_once(|| {
-            Command::new("cargo")
-                .arg("build")
-                .spawn()
-                .expect("failed to build binary");
-        });
-    }
 
     #[test]
     fn validates_the_first_parameter() -> Result<(), Box<dyn Error>> {
-        setup();
-
         let path = PathBuf::from(String::from("target/debug/grep-starter-rust"));
         let cmd = Command::new(path).args(["a"]).status()?;
 
@@ -103,8 +121,6 @@ mod test {
 
     #[test]
     fn single_character() -> Result<(), Box<dyn Error>> {
-        setup();
-
         {
             let mut cmd = spawn_cmd(vec!["-E", "a"])?;
 
@@ -126,8 +142,6 @@ mod test {
 
     #[test]
     fn match_digits() -> Result<(), Box<dyn Error>> {
-        setup();
-
         {
             let mut cmd = spawn_cmd(vec!["-E", r"\d"])?;
 
@@ -149,8 +163,6 @@ mod test {
 
     #[test]
     fn match_alphanumeric() -> Result<(), Box<dyn Error>> {
-        setup();
-
         {
             let mut cmd = spawn_cmd(vec!["-E", r"\w"])?;
 
@@ -172,8 +184,6 @@ mod test {
 
     #[test]
     fn match_positive_character_groups() -> Result<(), Box<dyn Error>> {
-        setup();
-
         {
             let mut cmd = spawn_cmd(vec!["-E", "[abc]"])?;
 
@@ -204,6 +214,35 @@ mod test {
             write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
             let output = cmd.wait_with_output()?;
             assert_eq!(output.status.code().unwrap(), 1);
+        }
+
+        return Ok(());
+    }
+
+    #[test]
+    fn match_negative_character_groups() -> Result<(), Box<dyn Error>> {
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[^abc]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 1);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[^d]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
+        }
+
+        {
+            let mut cmd = spawn_cmd(vec!["-E", "[^]"])?;
+
+            write!(cmd.stdin.as_mut().unwrap(), "{}", "apple")?;
+            let output = cmd.wait_with_output()?;
+            assert_eq!(output.status.code().unwrap(), 0);
         }
 
         return Ok(());
