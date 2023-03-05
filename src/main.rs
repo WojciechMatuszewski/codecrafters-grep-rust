@@ -2,11 +2,10 @@ use std::cmp::Ordering;
 use std::env;
 
 use std::io;
-use std::ops::Sub;
+
 use std::process;
 
 fn recurse(input: &[char], pattern: &[char]) -> bool {
-    dbg!(input, pattern);
     match pattern {
         [first, rest @ ..] if first == &'^' => {
             return recurse(input, rest);
@@ -41,6 +40,15 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                     return false;
                 }
             }
+        }
+        [first, ..] if first == &'.' && input.get(0).is_some() => {
+            if let Some(((_, next_input), (_, next_pattern))) =
+                input.split_first().zip(pattern.split_first())
+            {
+                return recurse(next_input, next_pattern);
+            }
+
+            return false;
         }
         [first, second, ..] if first == &'\\' && second == &'d' => {
             let digit_position = input.iter().position(|x| return char::is_numeric(*x));
@@ -345,6 +353,15 @@ mod test {
         assert_eq!(match_pattern("SaS", "a?"), true);
         assert_eq!(match_pattern("SS", "a?"), true);
         assert_eq!(match_pattern("SaaaS", "a+a?"), true);
+    }
+
+    #[test]
+    fn wildcard() {
+        assert_eq!(match_pattern("dog", "d.g"), true);
+        assert_eq!(match_pattern("dog", "..g"), true);
+        assert_eq!(match_pattern("cog", "d.g"), false);
+        assert_eq!(match_pattern("do", "do."), false);
+        assert_eq!(match_pattern("do", ".do"), false);
     }
 
     fn spawn_cmd(args: Vec<&str>) -> Result<Child, Box<dyn Error>> {
