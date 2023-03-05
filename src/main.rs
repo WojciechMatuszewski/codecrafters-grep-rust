@@ -1,28 +1,47 @@
+use std::cmp::Ordering;
 use std::env;
 
 use std::io;
+use std::ops::Sub;
 use std::process;
 
 fn recurse(input: &[char], pattern: &[char]) -> bool {
-    if pattern.len() == 0 && input.len() == 0 {
-        return true;
-    }
-
-    if pattern.len() != 0 && input.len() == 0 {
-        return false;
-    }
-
-    if pattern.len() == 0 && input.len() != 0 {
-        return true;
-    }
-
-    if pattern.get(0).unwrap() == input.get(0).unwrap() {
-        let new_input = &input[1..];
-        let new_pattern = &pattern[1..];
-        return recurse(new_input, new_pattern);
-    }
-
+    dbg!(input, pattern);
     match pattern {
+        [first, rest @ ..] if first == &'^' => {
+            return recurse(input, rest);
+        }
+        [first] if first == &'$' && input.get(0).is_none() => {
+            return true;
+        }
+        [first, second, rest @ ..] if second == &'+' => {
+            let pattern_length = input
+                .iter()
+                .skip_while(|&x| return x != first)
+                .take_while(|&x| return x == first)
+                .count();
+
+            match pattern_length.cmp(&0) {
+                Ordering::Less | Ordering::Equal => return false,
+                _ => return recurse(&input[pattern_length..], rest),
+            }
+        }
+        [first, second, rest @ ..] if second == &'?' => {
+            let pattern_length = input
+                .iter()
+                .skip_while(|&x| return x != first)
+                .take_while(|&x| return x == first)
+                .count();
+
+            match pattern_length {
+                0 | 1 => {
+                    return recurse(&input[pattern_length..], rest);
+                }
+                _ => {
+                    return false;
+                }
+            }
+        }
         [first, second, ..] if first == &'\\' && second == &'d' => {
             let digit_position = input.iter().position(|x| return char::is_numeric(*x));
             match digit_position {
@@ -50,16 +69,22 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 return true;
             }
 
-            let pattern_end = rest.iter().position(|x| x == &']').unwrap();
+            let pattern_end = match rest.iter().position(|x| x == &']') {
+                Some(end_index) => end_index,
+                None => return false,
+            };
             let negative_character_group = &rest[0..=pattern_end - 1];
-            let character_to_match = input.get(0).unwrap();
+            let character_to_match = match input.get(0) {
+                Some(to_match) => to_match,
+                None => return false,
+            };
 
             if negative_character_group.contains(character_to_match) {
                 return false;
             }
 
             let new_input = &input[1..];
-            let new_pattern = &pattern[pattern_end + 3..];
+            let new_pattern = &pattern[pattern_end + 1 + 1 + 1..];
             return recurse(new_input, new_pattern);
         }
         [first, rest @ ..] if first == &'[' => {
@@ -67,18 +92,29 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 return false;
             }
 
-            let pattern_end = rest.iter().position(|x| x == &']').unwrap();
+            let pattern_end = match rest.iter().position(|x| x == &']') {
+                Some(end_index) => end_index,
+                None => return false,
+            };
             let positive_character_group = &rest[0..=pattern_end - 1];
-            let character_to_match = input.get(0).unwrap();
+            let character_to_match = match input.get(0) {
+                Some(to_match) => to_match,
+                None => return false,
+            };
 
             if !positive_character_group.contains(character_to_match) {
                 return false;
             }
 
             let new_input = &input[1..];
-            let new_pattern = &pattern[pattern_end + 2..];
+            let new_pattern = &pattern[pattern_end + 1 + 1..];
             return recurse(new_input, new_pattern);
         }
+        [first, rest @ ..] if input.get(0).filter(|&x| first == x).is_some() => {
+            return recurse(&input[1..], rest);
+        }
+        _ if pattern.is_empty() => return true,
+        _ if input.is_empty() => return false,
         _ => return false,
     }
 }
@@ -258,7 +294,7 @@ mod test {
     }
 
     #[test]
-    fn combine_character_classes() -> Result<(), Box<dyn Error>> {
+    fn combine_character_classes() {
         assert_eq!(match_pattern("1 apple", r"\d apple"), true);
         assert_eq!(match_pattern("1 apple", r"\d orange"), false);
 
@@ -275,8 +311,40 @@ mod test {
         assert_eq!(match_pattern("1 dogz", r"\d \w\w\w[yxz]"), true);
         assert_eq!(match_pattern("12 dogs", r"\d\d d[lol][^k]\w"), true);
         assert_eq!(match_pattern("12 dogs", r"\d\d d[ku][^k]\w"), false);
+    }
 
-        return Ok(());
+    #[test]
+    fn match_start_of_string_anchor() {
+        assert_eq!(match_pattern("log", "^log"), true);
+        assert_eq!(match_pattern("slog", "^log"), false);
+        assert_eq!(match_pattern("s^og", "s^log"), false);
+    }
+
+    #[test]
+    fn match_end_of_string_anchor() {
+        assert_eq!(match_pattern("dog", "dog$"), true);
+        assert_eq!(match_pattern("dogs", "dog$"), false);
+        assert_eq!(match_pattern("do$gs", "do$g$"), false);
+        assert_eq!(match_pattern("dogs", "$dogs"), false);
+    }
+
+    #[test]
+    fn match_one_or_more_times() {
+        assert_eq!(match_pattern("SaaS", "a+"), true);
+        assert_eq!(match_pattern("caats", "ca+ts"), true);
+        assert_eq!(match_pattern("cats", "ca+ts"), true);
+        assert_eq!(match_pattern("cts", "ca+ts"), false);
+    }
+
+    #[test]
+    fn match_zero_or_one_times() {
+        assert_eq!(match_pattern("SaaS", "a?"), false);
+        assert_eq!(match_pattern("cat", "dogs?"), false);
+        assert_eq!(match_pattern("dogs", "dogs?"), true);
+        assert_eq!(match_pattern("dog", "dogs?"), true);
+        assert_eq!(match_pattern("SaS", "a?"), true);
+        assert_eq!(match_pattern("SS", "a?"), true);
+        assert_eq!(match_pattern("SaaaS", "a+a?"), true);
     }
 
     fn spawn_cmd(args: Vec<&str>) -> Result<Child, Box<dyn Error>> {
