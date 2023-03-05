@@ -3,86 +3,93 @@ use std::env;
 use std::io;
 use std::process;
 
-enum Token {}
-impl Token {
-    pub const DIGIT: &'static str = r"\d";
-    pub const ALPHANUMERIC: &'static str = r"\w";
-}
-
-struct Pattern;
-impl Pattern {
-    fn is_positive_character_group(pattern: &str) -> bool {
-        if pattern.len() < 3 {
-            return false;
-        }
-
-        let has_valid_prefix = pattern.get(..2).unwrap().contains(|prefix_char| {
-            return prefix_char == ']' || char::is_alphabetic(prefix_char);
-        });
-        let has_valid_suffix = pattern.ends_with("]");
-
-        return has_valid_prefix && has_valid_suffix;
+fn recurse(input: &[char], pattern: &[char]) -> bool {
+    if pattern.len() == 0 && input.len() == 0 {
+        return true;
     }
 
-    fn is_negative_character_group(pattern: &str) -> bool {
-        return pattern.starts_with("[^") && pattern.ends_with("]");
+    if pattern.len() != 0 && input.len() == 0 {
+        return false;
     }
-}
 
-fn match_pattern(input_line: &str, pattern: &str) -> bool {
+    if pattern.len() == 0 && input.len() != 0 {
+        return true;
+    }
+
+    if pattern.get(0).unwrap() == input.get(0).unwrap() {
+        let new_input = &input[1..];
+        let new_pattern = &pattern[1..];
+        return recurse(new_input, new_pattern);
+    }
+
     match pattern {
-        Token::DIGIT => {
-            return input_line.contains(|input_char| {
-                return char::is_digit(input_char, 10);
-            })
-        }
-        Token::ALPHANUMERIC => {
-            return input_line.contains(|input_char| {
-                return char::is_alphabetic(input_char);
-            })
-        }
-        pattern if Pattern::is_positive_character_group(pattern) => {
-            let chars_to_match = pattern
-                .strip_prefix("[")
-                .expect("failed to strip the [ from the pattern")
-                .strip_suffix("]")
-                .expect("failed to strip the ] from the pattern")
-                .chars();
-
-            let result = chars_to_match.fold(false, |match_found, char_to_match| {
-                if input_line.contains(char_to_match) {
-                    return true;
+        [first, second, ..] if first == &'\\' && second == &'d' => {
+            let digit_position = input.iter().position(|x| return char::is_numeric(*x));
+            match digit_position {
+                Some(position) => {
+                    let new_input = &input[position + 1..];
+                    let new_pattern = &pattern[2..];
+                    return recurse(new_input, new_pattern);
                 }
-
-                return match_found;
-            });
-
-            return result;
+                None => false,
+            }
         }
-        pattern if Pattern::is_negative_character_group(pattern) => {
-            let excluded_chars = pattern
-                .strip_prefix("[^")
-                .expect("failed to strip the [^ from the pattern")
-                .strip_suffix("]")
-                .expect("failed to strip the ] from the pattern")
-                .chars();
-
-            let has_excluded_chars =
-                excluded_chars.fold(false, |excluded_char_found, excluded_char| {
-                    if input_line.contains(excluded_char) {
-                        return true;
-                    }
-
-                    return excluded_char_found;
-                });
-
-            return !has_excluded_chars;
+        [first, second, ..] if first == &'\\' && second == &'w' => {
+            let alphanumeric_position = input.iter().position(|x| return char::is_alphanumeric(*x));
+            match alphanumeric_position {
+                Some(position) => {
+                    let new_input = &input[position + 1..];
+                    let new_pattern = &pattern[2..];
+                    return recurse(new_input, new_pattern);
+                }
+                None => false,
+            }
         }
-        _ => return input_line.contains(pattern),
+        [first, second, rest @ ..] if first == &'[' && second == &'^' => {
+            if rest.starts_with(&[']']) {
+                return true;
+            }
+
+            let pattern_end = rest.iter().position(|x| x == &']').unwrap();
+            let negative_character_group = &rest[0..=pattern_end - 1];
+            let character_to_match = input.get(0).unwrap();
+
+            if negative_character_group.contains(character_to_match) {
+                return false;
+            }
+
+            let new_input = &input[1..];
+            let new_pattern = &pattern[pattern_end + 3..];
+            return recurse(new_input, new_pattern);
+        }
+        [first, rest @ ..] if first == &'[' => {
+            if rest.starts_with(&[']']) {
+                return false;
+            }
+
+            let pattern_end = rest.iter().position(|x| x == &']').unwrap();
+            let positive_character_group = &rest[0..=pattern_end - 1];
+            let character_to_match = input.get(0).unwrap();
+
+            if !positive_character_group.contains(character_to_match) {
+                return false;
+            }
+
+            let new_input = &input[1..];
+            let new_pattern = &pattern[pattern_end + 2..];
+            return recurse(new_input, new_pattern);
+        }
+        _ => return false,
     }
 }
 
-// Usage: echo <input_text> | your_grep.sh -E <pattern>
+fn match_pattern(input: &str, pattern: &str) -> bool {
+    let filtered_input = input.chars().collect::<Vec<char>>();
+    let filtered_pattern = pattern.chars().collect::<Vec<char>>();
+
+    return recurse(filtered_input.as_slice(), filtered_pattern.as_slice());
+}
+
 fn main() {
     if env::args().nth(1).unwrap() != "-E" {
         println!("Expected first argument to be '-E'");
@@ -109,6 +116,8 @@ mod test {
         path::PathBuf,
         process::{Child, Command, Stdio},
     };
+
+    use crate::match_pattern;
 
     #[test]
     fn validates_the_first_parameter() -> Result<(), Box<dyn Error>> {
@@ -244,6 +253,28 @@ mod test {
             let output = cmd.wait_with_output()?;
             assert_eq!(output.status.code().unwrap(), 0);
         }
+
+        return Ok(());
+    }
+
+    #[test]
+    fn combine_character_classes() -> Result<(), Box<dyn Error>> {
+        assert_eq!(match_pattern("1 apple", r"\d apple"), true);
+        assert_eq!(match_pattern("1 apple", r"\d orange"), false);
+
+        assert_eq!(match_pattern("100 apples", r"\d\d\d apples"), true);
+        assert_eq!(match_pattern("1 apple", r"\d\d\d apple"), false);
+
+        assert_eq!(match_pattern("3 dogs", r"\d \w\w\ws"), true);
+        assert_eq!(match_pattern("4 cats", r"\d \w\w\ws"), true);
+        assert_eq!(match_pattern("1 dog", r"\d \w\w\ws"), false);
+
+        assert_eq!(match_pattern("1 dogx", r"\d \w\w\w[yxz]"), true);
+        assert_eq!(match_pattern("1 dogx", r"\d \w\w\w[yz]"), false);
+
+        assert_eq!(match_pattern("1 dogz", r"\d \w\w\w[yxz]"), true);
+        assert_eq!(match_pattern("12 dogs", r"\d\d d[lol][^k]\w"), true);
+        assert_eq!(match_pattern("12 dogs", r"\d\d d[ku][^k]\w"), false);
 
         return Ok(());
     }
