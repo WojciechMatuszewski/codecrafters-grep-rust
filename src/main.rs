@@ -7,12 +7,21 @@ use std::process;
 
 fn recurse(input: &[char], pattern: &[char]) -> bool {
     match pattern {
+        /*
+           Start of string anchor -> ^foo
+        */
         [first, rest @ ..] if first == &'^' => {
             return recurse(input, rest);
         }
+        /*
+           End of string anchor -> foo$
+        */
         [first] if first == &'$' && input.get(0).is_none() => {
             return true;
         }
+        /*
+           Match one or more times -> s+
+        */
         [first, second, rest @ ..] if second == &'+' => {
             let pattern_length = input
                 .iter()
@@ -25,6 +34,9 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 _ => return recurse(&input[pattern_length..], rest),
             }
         }
+        /*
+           Match zero or one times -> s?
+        */
         [first, second, rest @ ..] if second == &'?' => {
             let pattern_length = input
                 .iter()
@@ -41,6 +53,29 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 }
             }
         }
+        /*
+           Alternations -> (foo|bar)
+        */
+        [first, rest @ ..] if first == &'(' => {
+            let end_position = match rest.iter().position(|x| return x == &')') {
+                Some(position) => position,
+                None => return false,
+            };
+
+            let iter = &mut rest[..end_position].split(|&x| return x == '|');
+            while let Some(alternation_part) = iter.next() {
+                match recurse(input, alternation_part) {
+                    true => {
+                        return true;
+                    }
+                    _ => (),
+                }
+            }
+            return false;
+        }
+        /*
+           Wildcard -> f.ar
+        */
         [first, ..] if first == &'.' && input.get(0).is_some() => {
             if let Some(((_, next_input), (_, next_pattern))) =
                 input.split_first().zip(pattern.split_first())
@@ -50,6 +85,9 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
 
             return false;
         }
+        /*
+           Single digit -> 1\d
+        */
         [first, second, ..] if first == &'\\' && second == &'d' => {
             let digit_position = input.iter().position(|x| return char::is_numeric(*x));
             match digit_position {
@@ -61,6 +99,9 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 None => false,
             }
         }
+        /*
+           Alphanumeric -> fo\w
+        */
         [first, second, ..] if first == &'\\' && second == &'w' => {
             let alphanumeric_position = input.iter().position(|x| return char::is_alphanumeric(*x));
             match alphanumeric_position {
@@ -72,6 +113,9 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 None => false,
             }
         }
+        /*
+           Negative character group -> [^foo]
+        */
         [first, second, rest @ ..] if first == &'[' && second == &'^' => {
             if rest.starts_with(&[']']) {
                 return true;
@@ -95,6 +139,9 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
             let new_pattern = &pattern[pattern_end + 1 + 1 + 1..];
             return recurse(new_input, new_pattern);
         }
+        /*
+          Character group -> [foo]
+        */
         [first, rest @ ..] if first == &'[' => {
             if rest.starts_with(&[']']) {
                 return false;
@@ -118,6 +165,9 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
             let new_pattern = &pattern[pattern_end + 1 + 1..];
             return recurse(new_input, new_pattern);
         }
+        /*
+          Exact match for a single character
+        */
         [first, rest @ ..] if input.get(0).filter(|&x| first == x).is_some() => {
             return recurse(&input[1..], rest);
         }
@@ -362,6 +412,14 @@ mod test {
         assert_eq!(match_pattern("cog", "d.g"), false);
         assert_eq!(match_pattern("do", "do."), false);
         assert_eq!(match_pattern("do", ".do"), false);
+    }
+
+    #[test]
+    fn alternations() {
+        assert_eq!(match_pattern("cat", "(cat|dog)"), true);
+        assert_eq!(match_pattern("cats", "(cat|dog)s"), true);
+        assert_eq!(match_pattern("apple", "(cat|dog)"), false);
+        assert_eq!(match_pattern("apple", "a(pp|ll|ee)e"), true);
     }
 
     fn spawn_cmd(args: Vec<&str>) -> Result<Child, Box<dyn Error>> {
