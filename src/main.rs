@@ -5,7 +5,21 @@ use std::io;
 
 use std::process;
 
-fn recurse(input: &[char], pattern: &[char]) -> bool {
+#[derive(Debug, PartialEq)]
+enum Pattern {
+    StartOfStringAnchor,
+    MatchOneOrMoreTimes,
+    MatchZeroOrOneTimes,
+    Alternation,
+    Wildcard,
+    Digit,
+    Alphanumeric,
+    CharacterGroup,
+    NegativeCharacterGroup,
+    ExactCharacterMatch,
+}
+
+fn recurse(input: &[char], pattern: &[char], parent_pattern: Option<Pattern>) -> bool {
     match pattern {
         /*
            End of string anchor -> foo$
@@ -17,7 +31,7 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
            Start of string anchor -> ^foo
         */
         [first, new_pattern @ ..] if first == &'^' => {
-            return recurse(input, new_pattern);
+            return recurse(input, new_pattern, Some(Pattern::StartOfStringAnchor));
         }
         /*
            Match one or more times -> s+
@@ -32,7 +46,11 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
             match pattern_length.cmp(&0) {
                 Ordering::Less | Ordering::Equal => return false,
                 _ => {
-                    return recurse(&input[pattern_length..], rest);
+                    return recurse(
+                        &input[pattern_length..],
+                        rest,
+                        Some(Pattern::MatchOneOrMoreTimes),
+                    );
                 }
             }
         }
@@ -51,18 +69,17 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                     if &input[pattern_length..].len() == &0 {
                         return true;
                     }
-                    dbg!("here", &input[pattern_length..]);
-
-                    return recurse(&input[pattern_length..], rest);
+                    return recurse(
+                        &input[pattern_length..],
+                        rest,
+                        Some(Pattern::MatchZeroOrOneTimes),
+                    );
                 }
                 _ => {
                     return false;
                 }
             }
         }
-        /*
-           Alternations -> (foo|bar)
-        */
         [first, rest @ ..] if first == &'(' => {
             let end_position = match rest.iter().position(|x| return x == &')') {
                 Some(position) => position,
@@ -85,7 +102,7 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
             if let Some(((_, next_input), (_, next_pattern))) =
                 input.split_first().zip(pattern.split_first())
             {
-                return recurse(next_input, next_pattern);
+                return recurse(next_input, next_pattern, Some(Pattern::Wildcard));
             }
 
             return false;
@@ -99,7 +116,7 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                 Some(position) => {
                     let new_input = &input[position + 1..];
                     let new_pattern = &pattern[2..];
-                    return recurse(new_input, new_pattern);
+                    return recurse(new_input, new_pattern, Some(Pattern::Digit));
                 }
                 None => false,
             }
@@ -114,7 +131,7 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
                     let new_input = &input[position + 1..];
                     let new_pattern = &pattern[2..];
 
-                    return recurse(new_input, new_pattern);
+                    return recurse(new_input, new_pattern, Some(Pattern::Alphanumeric));
                 }
                 None => false,
             }
@@ -143,7 +160,11 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
 
             let new_input = &input[1..];
             let new_pattern = &pattern[pattern_end + 1 + 1 + 1..];
-            return recurse(new_input, new_pattern);
+            return recurse(
+                new_input,
+                new_pattern,
+                Some(Pattern::NegativeCharacterGroup),
+            );
         }
         /*
           Character group -> [foo]
@@ -169,21 +190,24 @@ fn recurse(input: &[char], pattern: &[char]) -> bool {
 
             let new_input = &input[1..];
             let new_pattern = &pattern[pattern_end + 1 + 1..];
-            return recurse(new_input, new_pattern);
+            return recurse(new_input, new_pattern, Some(Pattern::CharacterGroup));
         }
         /*
          * Exact one character match
          */
         [first, rest @ ..] if input.get(0).filter(|&x| x == first).is_some() => {
-            return recurse(&input[1..], rest)
+            return recurse(&input[1..], rest, Some(Pattern::ExactCharacterMatch))
         }
+        _ if input.get(0).is_some() => match parent_pattern {
+            Some(Pattern::StartOfStringAnchor) => return false,
+            _ => return recurse(&input[1..], pattern, None),
+        },
         _ if pattern.is_empty() => {
             return true;
         }
         _ if input.is_empty() => {
             return false;
         }
-        // _ if input.get(0).is_some() => return recurse(&input[1..], pattern),
         _ => return false,
     }
 }
@@ -192,7 +216,7 @@ fn match_pattern(input: &str, pattern: &str) -> bool {
     let filtered_input = input.chars().collect::<Vec<char>>();
     let filtered_pattern = pattern.chars().collect::<Vec<char>>();
 
-    return recurse(filtered_input.as_slice(), filtered_pattern.as_slice());
+    return recurse(filtered_input.as_slice(), filtered_pattern.as_slice(), None);
 }
 
 fn main() {
@@ -405,9 +429,9 @@ mod test {
         assert_eq!(match_pattern("SaaS", "a+"), true);
         assert_eq!(match_pattern("caats", "ca+ts"), true);
         assert_eq!(match_pattern("cats", "ca+ts"), true);
-        // assert_eq!(match_pattern("act", "ca?t"), true);
+        assert_eq!(match_pattern("act", "ca?t"), true);
 
-        // assert_eq!(match_pattern("cts", "ca+ts"), false);
+        assert_eq!(match_pattern("cts", "ca+ts"), false);
     }
 
     #[test]
@@ -417,7 +441,7 @@ mod test {
         assert_eq!(match_pattern("SaS", "a?"), true);
         assert_eq!(match_pattern("SS", "a?"), true);
         assert_eq!(match_pattern("SaaaS", "a+a?"), true);
-        // assert_eq!(match_pattern("act", "ca?t"), true);
+        assert_eq!(match_pattern("act", "ca?t"), true);
 
         assert_eq!(match_pattern("SaaS", "a?"), false);
         assert_eq!(match_pattern("cat", "dogs?"), false);
