@@ -10,7 +10,6 @@ enum Pattern {
     StartOfStringAnchor,
     MatchOneOrMoreTimes,
     MatchZeroOrOneTimes,
-    Alternation,
     Wildcard,
     Digit,
     Alphanumeric,
@@ -66,9 +65,6 @@ fn recurse(input: &[char], pattern: &[char], parent_pattern: Option<Pattern>) ->
 
             match pattern_length {
                 0 | 1 => {
-                    if &input[pattern_length..].len() == &0 {
-                        return true;
-                    }
                     return recurse(
                         &input[pattern_length..],
                         rest,
@@ -198,6 +194,9 @@ fn recurse(input: &[char], pattern: &[char], parent_pattern: Option<Pattern>) ->
         [first, rest @ ..] if input.get(0).filter(|&x| x == first).is_some() => {
             return recurse(&input[1..], rest, Some(Pattern::ExactCharacterMatch))
         }
+        /*
+         * Move forward with the pattern. Return early if the previous pattern was '^' but there was no immediate match on the proceeding pattern part.
+         */
         _ if input.get(0).is_some() => match parent_pattern {
             Some(Pattern::StartOfStringAnchor) => return false,
             _ => return recurse(&input[1..], pattern, None),
